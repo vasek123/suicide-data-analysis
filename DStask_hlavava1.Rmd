@@ -6,6 +6,7 @@ output: html_notebook
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(gridExtra)
 library(MASS)
 theme_set(theme_gray())
 ```
@@ -49,15 +50,14 @@ data %>% group_by(year) %>% summarise(population = sum(population), suicides_no 
 We can inspect the global trend of suicide rates.
 
 ```{r}
-global_rate <- data %>% group_by(year) %>%
+data %>% group_by(year) %>%
   summarise(
     population = sum(population),
     suicides_no = sum(suicides_no),
     suicides_per_100k = (suicides_no / population) * 100000,
     .groups = "keep"
-  )
-
-gg <- ggplot(global_rate, aes(x = year, y = suicides_per_100k)) +
+  ) %>%
+  ggplot(aes(x = year, y = suicides_per_100k)) +
   geom_point(color="orange", size=2.4) +
   geom_line(color="orange", size=1.1) +
   labs(
@@ -66,11 +66,9 @@ gg <- ggplot(global_rate, aes(x = year, y = suicides_per_100k)) +
   ) +
   scale_x_continuous(breaks = seq(1985, 2015, 2))
   
-
-plot(gg)
 ```
 ```{r}
-data %>% group_by(year, continent) %>%
+ data %>% group_by(year, continent) %>%
   summarise(
     population = sum(population),
     suicides_no = sum(suicides_no),
@@ -81,18 +79,50 @@ data %>% group_by(year, continent) %>%
   geom_point(size=0.8) +
   facet_wrap(~ continent)
 ```
+
+```{r fig.height=7}
+
+continent_overall_plot <- data %>% group_by(continent) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep"
+  ) %>%
+  ggplot(aes(x = continent, y = suicides_per_100k, fill = continent)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Overall differences in suicide rates between continents",
+       x = "Continent", y = "Suicides per 100k people") +
+  theme(legend.position = "none")
+
+continent_by_year_plot <- data %>% group_by(year, continent) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep"
+  ) %>%
+  ggplot(aes(x = year, y = suicides_per_100k, color=continent)) +
+  geom_line() +
+  geom_point(size=0.8) +
+  scale_x_continuous(breaks = seq(1985, 2015, 5)) +
+  facet_wrap(~ continent, ncol = 1, scales = "free_y") +
+  labs(title = "Suicide Rate By Continent In Time",
+       x = "Year", y = "Suicides per 100k people") +
+  theme(legend.position = "none")
+
+grid.arrange(continent_overall_plot, continent_by_year_plot, ncol = 2)
+```
 ```{r}
 data %>%
   filter(continent == "Africa") %>%
   group_by(country) %>%
-  summarise(reports = n_distinct(year)) %>%
+  summarise(reports = n_distinct(year), .groups = "keep") %>%
   arrange(reports)
 ```
-```{r}
-data %>% filter(country == "Cabo Verde") %>%
-  summarise(min_year = min(year), max_year = max(year))
-```
 
+
+### Differences between sexes
 
 ```{r}
 # Global rates conditioned on gender
@@ -115,7 +145,7 @@ plot(gg)
 
 It is clear that the male part of the population is at a higher risk of suicide
 than its female counterpart. Another somewhat interesting observation is that
-the change in suicide rates of women in time is not as pronounced as is the
+the change in suicide rate of women in time is not as pronounced as is the
 change of suicide rate of men.
 
 ```{r}
@@ -130,21 +160,40 @@ data %>% group_by(continent, sex) %>%
   geom_bar(stat = "identity", position = "stack") +
   scale_y_continuous(breaks = seq(0, 40, 5)) +
   coord_flip() +
+  theme(legend.position = "bottom") +
   labs(title = "Overall Differences in Suicide Rates between the Continents",
        subtitle = "Along with Differences Between Sexes within Individual Continents",
        x = "Continent", y = "Suicides per 100k people")
 ```
+We can also inspect the differences between the sexes on within individual
+continents. This again reveals the same pattern for all of the continents,
+that men 
 
-
-
-```{r}
-data %>% filter(year == 1990) %>%
-  group_by(country) %>%
+```{r fig.height=7, fig.width=7}
+data %>% group_by(continent, sex, year) %>%
   summarise(
     population = sum(population),
     suicides_no = sum(suicides_no),
-    gdp_per_capita = gdp_per_capita,
-    continent = continent,
+    suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep"
+  ) %>%
+  ggplot(aes(x = year, y = suicides_per_100k, color = sex)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ continent, ncol = 1, scales = "free_y", strip.position = "right") +
+  scale_x_continuous(breaks = seq(1985, 2015, 2)) +
+  theme(legend.position = "bottom")
+```
+The suicide rates of women are consistently lower than those of men across all
+of the inspected continents.
+
+
+```{r}
+data %>% group_by(continent, country, year) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    gdp_per_capita = mean(gdp_per_capita),
     suicides_per_100k = (suicides_no / population) * 100000,
     .groups = "keep"
   ) %>%
@@ -152,6 +201,96 @@ data %>% filter(year == 1990) %>%
   scale_x_log10() +
   geom_point()
 ```
+```{r}
+
+data.lda <- data %>% group_by(continent, country) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    mean_gdp_per_capita = mean(gdp_per_capita),
+    .groups = "keep")
+
+cor(data.lda$suicides_per_100k, data.lda$mean_gdp_per_capita, method = "spearman")
+
+data.lda %>%
+  ggplot(aes(x = mean_gdp_per_capita, y = suicides_per_100k, color = continent)) +
+  geom_point()
+
+data.glm <- glm(suicides_per_100k ~ poly(mean_gdp_per_capita, 2), data = data.lda)
+summary(data.glm)
+
+```
+
+### Correlation Between GDP and Suicide Rates
+```{r}
+
+correlation.gdp.suicide <- data.frame()
+
+for (c in levels(data$country)) {
+  
+  # if (!(c %in% (data %>% filter(continent == "Europe") %>% distinct(country))$country)) {
+  #   next
+  # }
+  
+  country.data <- data %>% filter(country == c) %>%
+    group_by(country, year, gdp_per_capita) %>%
+    summarise(
+      population = sum(population),
+      suicides_no = sum(suicides_no),
+      suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep")
+  
+  if (nrow(country.data) < 10) {
+    next
+  }
+  
+  corr <- cor(x = country.data$gdp_per_capita, y = country.data$suicides_per_100k, method = "spearman")
+  
+  correlation.gdp.suicide <- rbind(
+    correlation.gdp.suicide,
+    list(
+      country = c,
+      correlation = corr
+    )
+  )
+  
+  # show(c)
+  # show(nrow(country.data))
+  # show(cor(y = country.data$suicides_per_100k, x = country.data$gdp_per_capita, method = "spearman"))
+  
+  # print(
+    # country.data %>%
+      # ggplot(aes(x = gdp_per_capita, y = suicides_per_100k, color = country)) +
+      # geom_point() +
+      # labs(title = c, subtitle = cor(y = country.data$suicides_per_100k, x = country.data$gdp_per_capita, method = "spearman"))
+#   )
+}
+
+
+correlation.gdp.suicide <- arrange(correlation.gdp.suicide, correlation.gdp.suicide$correlation)
+
+```
+
+
+```{r}
+
+top.corr.countries <- head(correlation.gdp.suicide)$country
+
+data %>% filter(country %in% top.corr.countries) %>%
+  group_by(country, year, gdp_per_capita) %>%
+  summarise(
+      population = sum(population),
+      suicides_no = sum(suicides_no),
+      suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep") %>%
+  ggplot(aes(x = gdp_per_capita, y = suicides_per_100k)) +
+  geom_point() +
+  facet_wrap(~ country)
+
+```
+
+
 
 ```{r}
 gg <- data %>% group_by(year, age) %>%
@@ -162,16 +301,18 @@ gg <- data %>% group_by(year, age) %>%
     .groups = "keep") %>%
   ggplot(aes(x = year, y = suicides_per_100k, color = age)) +
   geom_line() +
-  geom_point() +
+  geom_point(size = 0.9) +
   scale_x_continuous(breaks = seq(1985, 2015, 2)) +
   labs(title = "", x = "Year", y = "Suicides per 100k people")
 
 plot(gg)
   
 ```
+According to this graph, the suicide risk is 
 
 ```{r fig.height = 6}
-data %>% filter(continent == "Europe") %>%
+
+data_europe <- data %>% filter(continent == "Europe") %>%
   group_by(country) %>%
   summarise(
     population = sum(population),
@@ -179,16 +320,69 @@ data %>% filter(continent == "Europe") %>%
     suicides_per_100k = (suicides_no / population) * 100000,
     .groups = "keep"
   ) %>%
-  arrange(desc(suicides_per_100k)) %>%
+  arrange(desc(suicides_per_100k))
+
+data_europe %>%
   ggplot(aes(x = reorder(country, suicides_per_100k), y = suicides_per_100k, fill = suicides_per_100k)) +
   geom_bar(stat = "identity") +
-  scale_fill_gradient(low = "blue", high = "red") + 
+  scale_fill_viridis_c() +
   coord_flip() +
   theme(legend.position = "none") +
   labs(title = "Overall Suicide Rates in European countries",
        x = "Country", y = "Suicides per 100k people")
   
 ```
+
+```{r}
+
+european_countries <- data_europe %>% head(5) %>% dplyr::select(country)
+
+data %>% filter(country %in% european_countries$country) %>%
+  group_by(country, year) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep"
+  ) %>%
+  ggplot(aes(x = year, y = suicides_per_100k, color = country)) +
+  geom_line()
+
+```
+```{r}
+
+ru_be_data <- data %>% filter(country %in% c("Russian Federation", "Belarus")) %>%
+  group_by(country, year) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep"
+  )
+
+
+```
+
+
+```{r}
+
+russia <- data %>% filter(country == "Russian Federation")
+
+russia %>% group_by(year, sex) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep"
+  ) %>%
+  ggplot(aes(x = year, y = suicides_per_100k, color = sex)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Suicide Rate in Russia In Time",
+       x = "Year", y = "Suicides per 100k people")
+
+```
+Correlation between suicide rate and alcohol consumption.
 
 ```{r}
 
@@ -205,15 +399,34 @@ pca <- prcomp(
 
 ```
 ```{r}
+data_japan <- data %>% filter(country == "Japan")
 
-data.for.lda <- data %>%
-  group_by(continent, country) %>%
+data_japan %>% group_by(country, year) %>%
   summarise(
-    population = sum(population),
-    suicides_no = sum(suicides_no),
-    suicides_per_100k = (suicides_no / population) * 100000)
+      population = sum(population),
+      suicides_no = sum(suicides_no),
+      suicides_per_100k = (suicides_no / population) * 100000,
+      .groups = "keep"
+  ) %>%
+  ggplot(aes(x = year, y = suicides_per_100k, color = country)) +
+  geom_line() +
+  geom_point() +
+  theme(legend.position = "none")
 
-data.lda <- lda(suicides_per_100k ~ continent, data = data.for.lda)
+data_japan %>% group_by(country, year, age) %>%
+  summarise(
+      population = sum(population),
+      suicides_no = sum(suicides_no),
+      suicides_per_100k = (suicides_no / population) * 100000,
+      .groups = "keep"
+  ) %>%
+  ggplot(aes(x = year, y = suicides_per_100k, color = age)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq(1985, 2015, 2)) +
+  labs(title = "Differences between age groups in Japan in time",
+       x = "Year", y = "Suicides per 100k people")
+
 ```
 
 
@@ -228,9 +441,16 @@ data_pca <- data %>%
     suicides_per_100k = (suicides_no / population) * 100000,
     .groups = "keep")
 
-pca <- prcomp(data_pca[c("suicides_per_100k", "mean_gdp")], center = TRUE, scale. = TRUE)
+pca <- prcomp(data_pca[c("suicides_per_100k", "mean_gdp", "population")], center = TRUE, scale. = TRUE)
 show(pca)
 
 biplot(pca)
 ```
+
+```{r}
+
+
+
+```
+
 
