@@ -228,11 +228,7 @@ summary(data.glm)
 correlation.gdp.suicide <- data.frame()
 
 for (c in levels(data$country)) {
-  
-  # if (!(c %in% (data %>% filter(continent == "Europe") %>% distinct(country))$country)) {
-  #   next
-  # }
-  
+
   country.data <- data %>% filter(country == c) %>%
     group_by(country, year, gdp_per_capita) %>%
     summarise(
@@ -254,17 +250,6 @@ for (c in levels(data$country)) {
       correlation = corr
     )
   )
-  
-  # show(c)
-  # show(nrow(country.data))
-  # show(cor(y = country.data$suicides_per_100k, x = country.data$gdp_per_capita, method = "spearman"))
-  
-  # print(
-    # country.data %>%
-      # ggplot(aes(x = gdp_per_capita, y = suicides_per_100k, color = country)) +
-      # geom_point() +
-      # labs(title = c, subtitle = cor(y = country.data$suicides_per_100k, x = country.data$gdp_per_capita, method = "spearman"))
-#   )
 }
 
 
@@ -272,10 +257,68 @@ correlation.gdp.suicide <- arrange(correlation.gdp.suicide, correlation.gdp.suic
 
 ```
 
-
 ```{r}
 
+correlation.gdp.suicide %>%
+  filter(country %in% (data %>% filter(continent == "Africa") %>% distinct(country))$country) %>%
+  ggplot(aes(x = reorder(country, correlation), y = correlation, fill = correlation)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_viridis_c()
+
+```
+
+
+```{r fig.width=8}
+
 top.corr.countries <- head(correlation.gdp.suicide)$country
+top.corr.correlations <- head(correlation.gdp.suicide)$correlation
+
+my_labeller <- function(countries) {
+  correlation <- map(
+    countries,
+    function(x) correlation.gdp.suicide[correlation.gdp.suicide$country == x, ]$correlation
+  ) %>% unlist
+  correlation <- round(correlation, digits = 2)
+  result <- paste(as.character(countries), ", rho = ", correlation, sep = "")
+}
+
+data %>% filter(country %in% top.corr.countries) %>%
+  group_by(country, year, gdp_per_capita) %>%
+  summarise( 
+      population = sum(population),
+      suicides_no = sum(suicides_no),
+      suicides_per_100k = (suicides_no / population) * 100000,
+    .groups = "keep") %>%
+  mutate(country_order = factor(country, levels = top.corr.countries)) %>%
+  ggplot(aes(x = gdp_per_capita, y = suicides_per_100k, color = country_order)) +
+  geom_point() +
+  scale_colour_viridis_d(end = 0.9) +
+  facet_wrap(~ country_order, scales = "free",
+             labeller = as_labeller(my_labeller)) +
+  labs(title = "Countries with the highest anticorrelation of gross domestic product and suicide rate",
+       subtitle = "Correlation is reported using Spearman's rho",
+       x = "GDP [$]", y = "Suicides per 100k people") +
+  theme(legend.position = "none")
+
+```
+
+The correlations were computed using Spearman's rho, since the relationship between
+the two variables does not appear to be linear.
+
+```{r fig.width=8}
+
+top.corr.countries <- head(arrange(correlation.gdp.suicide, desc(correlation.gdp.suicide$correlation)))
+top.corr.countries <- top.corr.countries$country
+
+my_labeller <- function(countries) {
+  correlation <- map(
+    countries,
+    function(x) correlation.gdp.suicide[correlation.gdp.suicide$country == x, ]$correlation
+  ) %>% unlist
+  correlation <- round(correlation, digits = 2)
+  result <- paste(as.character(countries), ", rho = ", correlation, sep = "")
+}
 
 data %>% filter(country %in% top.corr.countries) %>%
   group_by(country, year, gdp_per_capita) %>%
@@ -284,12 +327,42 @@ data %>% filter(country %in% top.corr.countries) %>%
       suicides_no = sum(suicides_no),
       suicides_per_100k = (suicides_no / population) * 100000,
     .groups = "keep") %>%
-  ggplot(aes(x = gdp_per_capita, y = suicides_per_100k)) +
+  mutate(country_order = factor(country, levels = top.corr.countries)) %>%
+  ggplot(aes(x = gdp_per_capita, y = suicides_per_100k, color = country_order)) +
   geom_point() +
-  facet_wrap(~ country)
-
+  scale_colour_viridis_d(begin = 0.9, end = 0) +
+  facet_wrap(~ country_order, scales = "free",
+             labeller = as_labeller(my_labeller)) +
+  labs(title = "Countries with the highest correlation of gross domestic product and suicide rate",
+       subtitle = "Correlation is reported using Spearman's rho",
+       x = "GDP [$]", y = "Suicides per 100k people") +
+  theme(legend.position = "none")
 ```
 
+```{r}
+
+data %>%
+  filter(country %in% correlation.gdp.suicide$country) %>%
+  group_by(continent, country) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    gdp_per_capita = mean(gdp_per_capita),
+    .groups = "keep") %>%
+  mutate(gdp.corr = correlation.gdp.suicide[correlation.gdp.suicide$country == country, ]$correlation) %>%
+  ggplot(aes(x = gdp.corr, y = suicides_per_100k, color = country)) +
+  scale_color_viridis_d() +
+  geom_point() +
+  theme(legend.position = "none") +
+  labs(title = "Relationship between suicide rate and its correlation with GDP",
+       subtitle = "Correlation is reported using Spearman's Rho",
+       x = "correlation", y = "Suicides per 100k people")
+
+```
+It seems that the countries, where the suicide rate is highly correlated with the gross domestic
+product, tend to have higher suicide rates than the countries where the correlation with GDP
+is not very strong. This can be observed on both ends of the correlation domain, however it is
 
 
 ```{r}

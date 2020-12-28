@@ -2,3 +2,5 @@
 *.pdf
 *.Rproj.user
 .Rproj.user
+.RData
+.Rhistory
