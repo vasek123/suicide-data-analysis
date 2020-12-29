@@ -1,5 +1,5 @@
 ---
-title: "R Notebook"
+title: "Suicide Prevention and Analysis"
 output: html_notebook
 ---
 
@@ -7,6 +7,7 @@ output: html_notebook
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(gridExtra)
+library(factoextra)
 library(MASS)
 theme_set(theme_gray())
 ```
@@ -24,8 +25,7 @@ assignment of the Statistical data analysis course.
 load(file="data/suicide.RData")
 ```
 
-I begin by inspecting whether the dataset contains any NA values that would be
-needed to be taken care of.
+I begin by inspecting whether the dataset contains any NA values that would need to be taken care of.
 ```{r}
 data %>% is.na() %>% colSums()
 ```
@@ -33,40 +33,88 @@ Did all of the included countries contribute the same amount of data? Are there
 any countries that reported their statistics far less often than other countries?
 
 ```{r}
-data %>% group_by(country) %>%
-  summarise(years_count = n_distinct(year), .groups="keep") %>%
-  arrange(desc(years_count))
+years.count <- data %>% group_by(continent, country) %>%
+  summarise(count = n_distinct(year)) %>%
+  arrange(desc(count))
+
+years.count %>%
+  ggplot(aes(x = count, fill = continent)) +
+  scale_x_continuous(n.breaks = 31) +
+  geom_bar()
 ```
+
 
 We can see that there are some countries that contributed only 3 years worth of
 data or less.
 
+
+### Suicide rate
+
+Throughout the majority of this notebook, I will be working with suicide rates rather than with concrete numbers
+of total suicides. The reason for this is that it allows us to perform better comparisons of suicide prevalence
+between different countries and continents, as the populations of different areas differ, and the total number of
+suicides in a population is correlated with the size of the population.
+
 ```{r}
-data %>% group_by(year) %>% summarise(population = sum(population), suicides_no = sum(suicides_no), per_100k = (suicides_no / population) * 100000)
+country.summary <- data %>% group_by(year) %>%
+  summarise(population = sum(population),
+            suicides_no = sum(suicides_no))
+
+cor(x = country.summary$population, y = country.summary$suicides_no)
 ```
+
+If we wanted to be even more rigorous with our analysis, we could standardize our suicide rates by age distribution.
+
 
 ### Global trend inspection
 
-We can inspect the global trend of suicide rates.
+The first thing that we can inspect is the progression of suicide rates worldwide during the time period 1985-2015.
 
 ```{r}
-data %>% group_by(year) %>%
+
+global.suicide.rate <- data %>% group_by(year) %>%
   summarise(
     population = sum(population),
     suicides_no = sum(suicides_no),
-    suicides_per_100k = (suicides_no / population) * 100000,
-    .groups = "keep"
-  ) %>%
+    suicides_per_100k = (suicides_no / population) * 100000
+  ) 
+
+global.suicide.rate %>%
   ggplot(aes(x = year, y = suicides_per_100k)) +
   geom_point(color="orange", size=2.4) +
   geom_line(color="orange", size=1.1) +
   labs(
-    title = "Global Suicide Rates",
+    title = "Worldwide Suicide Rates",
     x = "Year", y = "Suicides per 100k people"
   ) +
   scale_x_continuous(breaks = seq(1985, 2015, 2))
   
 ```
+
+This figure shows that there has been a great rise in suicides throughout the years 1989 and 1995.
+However, with a few exceptions, the suicide rate seems to be on decline ever since then.
+
+```{r}
+differences <- data.frame(
+  difference = tail(global.suicide.rate$suicides_per_100k, -1) - head(global.suicide.rate$suicides_per_100k, -1),
+  year = tail(global.suicide.rate$year, -1))
+
+differences <- differences %>%
+  mutate(changeNotPositive = difference <= 0)
+
+differences %>%
+  ggplot(aes(x = year, y = difference, color = changeNotPositive)) +
+  geom_segment(aes(x = year, xend = year, y = 0, yend = difference)) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = seq(1986, 2015, 2)) +
+  scale_y_continuous(breaks = seq(-1, 1.5, 0.5)) +
+  theme(legend.position = "none") +
+  labs(title = "Change in suicide rate in time",
+       subtitle = "Shows the change in suicide rate from the previous year",
+       x = "Year", y = "Difference")
+```
+The figure above shows us the differences in suicide rates between two subsequent years.
+
 ```{r fig.height=7}
 
 continent_overall_plot <- data %>% group_by(continent) %>%
@@ -100,11 +148,14 @@ continent_by_year_plot <- data %>% group_by(year, continent) %>%
 
 grid.arrange(continent_overall_plot, continent_by_year_plot, ncol = 2)
 ```
+
+
+
 ```{r}
 data %>%
   filter(continent == "Africa") %>%
   group_by(country) %>%
-  summarise(reports = n_distinct(year), .groups = "keep") %>%
+  summarise(reports = n_distinct(year)) %>%
   arrange(reports)
 ```
 
@@ -139,17 +190,15 @@ data_europe %>%
   scale_fill_viridis_c() +
   coord_flip() +
   theme(legend.position = "none") +
-  labs(title = "Overall Suicide Rates in European countries",
-       x = "Country", y = "Suicides per 100k people")
+  labs(title = "Number of suicides in European countries",
+       x = "Country", y = "Number of suicides")
   
 ```
 
 ### Differences between sexes
 
 ```{r}
-# Global rates conditioned on gender
-
-gg <- data %>% group_by(year, sex) %>%
+data %>% group_by(year, sex) %>%
   summarise(
     population = sum(population),
     suicides_no = sum(suicides_no),
@@ -160,9 +209,6 @@ gg <- data %>% group_by(year, sex) %>%
   geom_point(size=2.4) +
   labs(title = "Global Differences in Suicide Rates Between Sexes",
        x = "Year", y = "Suicides per 100k people")
-  
-plot(gg)
-
 ```
 
 It is clear that the male part of the population is at a higher risk of suicide
@@ -261,17 +307,14 @@ data %>% group_by(continent, country) %>%
   ggplot(aes(x = mean_gdp_per_capita, y = suicides_per_100k, color = continent)) +
   geom_point() +
   labs(title = "Relationship between suicide rate and GDP per capita",
-       subtitle = "Both variables are represented as means from the time interval 1985-2015",
+       subtitle = "Both variables are represented as means from the time period 1985-2015",
        x = "GDP per capita [$]", y = "Suicides per 100k people")
   
 
 ```
-This figure does not seem to reveal any .
-We can also try to calculate the correlations between these two variables over the same time interval
-for each of the countries individually.
-
-The correlations were computed using Spearman's rho, since the relationship between
-the two variables does not appear to be linear.
+This figure does not seem to reveal any relationship between these variables. We can also try to calculate the correlations
+between these two variables over the same time interval for each of the countries individually. The correlations were computed
+using Spearman's rho, since the relationship between the two variables is not expected to be linear.
 
 ```{r}
 
@@ -308,11 +351,13 @@ correlation.gdp.suicide <- arrange(correlation.gdp.suicide, correlation.gdp.suic
 ```
 
 ```{r}
-correlation.gdp.suicide %>%
-  ggplot(aes(x = correlation)) +
-  geom_density(color = "orange", fill = "orange", alpha = 0.2)
+head(correlation.gdp.suicide)
+tail(correlation.gdp.suicide)
 ```
 
+We can see that this provided us with a much more better insight into the data, and that there is truly a relationship
+between the suicide rates within a country and gross domestic product of the country. The relationship seems to be very
+strong for a 
 
 ```{r fig.width=8}
 
@@ -338,10 +383,10 @@ data %>% filter(country %in% top.corr.countries) %>%
   mutate(country_order = factor(country, levels = top.corr.countries)) %>%
   ggplot(aes(x = gdp_per_capita, y = suicides_per_100k, color = country_order)) +
   geom_point() +
-  scale_colour_viridis_d(end = 0.9) +
+  scale_colour_viridis_d(end = 0.8) +
   facet_wrap(~ country_order, scales = "free",
              labeller = as_labeller(my_labeller)) +
-  labs(title = "Countries with the highest anticorrelation of gross domestic product and suicide rate",
+  labs(title = "Countries with the largest negative correlation of gross domestic product and suicide rate",
        subtitle = "Correlation is reported using Spearman's rho",
        x = "GDP [$]", y = "Suicides per 100k people") +
   theme(legend.position = "none")
@@ -375,10 +420,10 @@ data %>% filter(country %in% top.corr.countries) %>%
   mutate(country_order = factor(country, levels = top.corr.countries)) %>%
   ggplot(aes(x = gdp_per_capita, y = suicides_per_100k, color = country_order)) +
   geom_point() +
-  scale_colour_viridis_d(begin = 0.9, end = 0) +
+  scale_colour_viridis_d(begin = 0.8, end = 0) +
   facet_wrap(~ country_order, scales = "free",
              labeller = as_labeller(my_labeller)) +
-  labs(title = "Countries with the highest correlation of gross domestic product and suicide rate",
+  labs(title = "Countries with the largest correlation of gross domestic product and suicide rate",
        subtitle = "Correlation is reported using Spearman's rho",
        x = "GDP [$]", y = "Suicides per 100k people") +
   theme(legend.position = "none")
@@ -396,8 +441,8 @@ data %>%
     suicides_per_100k = (suicides_no / population) * 100000,
     gdp_per_capita = mean(gdp_per_capita),
     .groups = "keep") %>%
-  mutate(gdp.corr = correlation.gdp.suicide[correlation.gdp.suicide$country == country, ]$correlation) %>%
-  ggplot(aes(x = gdp.corr, y = suicides_per_100k, color = continent)) +
+  inner_join(correlation.gdp.suicide, by = "country") %>%
+  ggplot(aes(x = correlation, y = suicides_per_100k, color = continent)) +
   geom_point() +
   labs(title = "Relationship between suicide rate and its correlation with GDP",
        subtitle = "Correlation is reported using Spearman's Rho",
@@ -407,7 +452,7 @@ data %>%
 It seems that the countries, where the suicide rate is highly correlated with the gross domestic
 product, tend to have higher suicide rates than the countries where the correlation with GDP
 is not very strong. This can be observed on both ends of the correlation's value range, however it is
-far more pronounced for countries that anticorrelate.
+far more pronounced for countries that achieve a negative correlation.
 It is also apparent that the majority of countries that achieve a high correlation is European.
 
 ```{r fig.height=4, fig.width=8}
@@ -425,19 +470,6 @@ correlation.gdp.suicide %>%
        x = "Country", y = "Correlation") +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
         legend.position = "none")
-
-# correlation.gdp.suicide %>%
-#   inner_join(countries.continent, by = "country") %>%
-#   filter(continent == "Europe") %>%
-#   ggplot(aes(y = reorder(country, correlation), x = correlation, fill = continent)) +
-#   geom_bar(stat = "identity") +
-#   labs(title = "Correlations between suicide rate and gross domestic product")
-#   # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-
-correlation.gdp.suicide %>%
-  inner_join(countries.continent, by = "country") %>%
-  filter(continent == "Europe") %>%
-  pull(correlation) %>% mean
 
 ```
 
@@ -479,6 +511,72 @@ data_japan %>% group_by(country, year, age) %>%
 
 ```
 
+
+### Clustering
+
+```{r}
+clustering.data <- data %>%
+  filter(country %in% correlation.gdp.suicide$country) %>%
+  group_by(country) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    gdp_per_capita = mean(gdp_per_capita)) %>%
+  inner_join(correlation.gdp.suicide, by = "country") %>%
+  mutate(suicides_per_100k = scale(suicides_per_100k),
+         correlation = scale(correlation)) %>%
+  dplyr::select("country", "correlation", "suicides_per_100k")
+
+clustering.data.numeric <- clustering.data %>% dplyr::select(correlation, suicides_per_100k)
+
+clustering <- kmeans(clustering.data.numeric, 6)
+
+# clustering.data %>% cbind(cluster = as.factor(clustering$cluster)) %>%
+#   ggplot(aes(x = correlation, y = suicides_per_100k, color = cluster)) +
+#   scale_color_viridis_d() +
+#   geom_point() +
+#   geom_point(data = data.frame(clustering$centers, cluster = factor(c(1, 2, 3))), shape)
+
+fviz_cluster(clustering, data = clustering.data.numeric, labelsize = 0) +
+  labs(title = "Clustering countries based on their dependence on GDP",
+       subtitle = "Both features have been normalized",
+       x = "GDP and Suicide rate correlation")
+
+
+```
+
+```{r}
+clustering.data %>% cbind(cluster = clustering$cluster) %>%
+  filter(cluster == 5) %>%
+  pull(country)
+```
+
+```{r}
+clustering
+```
+
+
+### Dimension Reduction
+
+The $\texttt{generation}$ feature is redundant, since we can assign a generation to a group of population by combining the information
+from the features $\texttt{year}$ and $\texttt{age}$.
+
+Furthermore, the features $\texttt{gdp_for_year}$ and $\texttt{gdp_per_capita}$ are mutually redundant. That is because we can always
+use one of these features in combination with the sum of total population in a country in a certain year to get the value of the other
+feature, e.g. $\texttt{gdp_per_capita} = \frac{\texttt{gdp_for_year}}{\texttt{total_population}}$.
+
+
+```{r}
+data %>% group_by(country, year, gdp_for_year, gdp_per_capita) %>%
+  summarise(population = sum(population)) %>%
+  mutate(x = as.integer(round(gdp_for_year / population)),
+         y = abs(x - gdp_per_capita)) %>%
+  pull(y) %>%
+  mean
+```
+
+
 ### Conclusion
 
 
@@ -502,7 +600,12 @@ where $\mu_m$ and $\mu_w$ are the means of suicide rates of men and women during
 the time period 1985-2015, respectively. The confidence level is set to be $\alpha = 0.05$.
 
 In order to test this hypothesis, I will make use of Welch's Two Sample t-test,
+
+Where $\mu_m$ and $\mu_w$ are the mean suicide rates of men and women, respectively.
+
+In order to test this hypothesis, I will make use of the Welch's Two Sample t-test,
 which is a modification of Student's t-test supporting unequal variances of the samples.
+
 
 ```{r}
 
