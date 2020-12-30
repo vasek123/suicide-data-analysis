@@ -268,6 +268,7 @@ data %>% group_by(year, age) %>%
   geom_line() +
   geom_point(size = 0.9) +
   scale_x_continuous(breaks = seq(1985, 2015, 2)) +
+  scale_color_discrete() +
   labs(title = "Relationship between suicide rate and age",
        x = "Year", y = "Suicides per 100k people")
 ```
@@ -283,6 +284,7 @@ data %>% group_by(continent, year, age) %>%
   geom_line() +
   geom_point(size = 0.9) +
   scale_x_continuous(breaks = seq(1985, 2015, 2)) +
+  scale_color_discrete() +
   facet_wrap(~continent, ncol = 1) +
   labs(title = "Relationship between suicide rate and age within individual continents",
        x = "Year", y = "Suicides per 100k people")
@@ -313,8 +315,8 @@ data %>% group_by(continent, country) %>%
 
 ```
 This figure does not seem to reveal any relationship between these variables. We can also try to calculate the correlations
-between these two variables over the same time interval for each of the countries individually. The correlations were computed
-using Spearman's rho, since the relationship between the two variables is not expected to be linear.
+between these two variables over the same time interval for each of the countries individually. The correlations were computed using Spearman's rho, since the relationship between the two variables is not expected to be linear.
+The correlations have been computed only for the countries where 10 or more years of data has been available.
 
 ```{r}
 
@@ -334,13 +336,17 @@ for (c in levels(data$country)) {
     next
   }
   
-  corr <- cor(x = country.data$gdp_per_capita, y = country.data$suicides_per_100k, method = "spearman")
+  # corr <- cor(x = country.data$gdp_per_capita, y = country.data$suicides_per_100k, method = "spearman")
+  corr <- cor.test(x = country.data$gdp_per_capita, y = country.data$suicides_per_100k, method = "spearman",
+                   exact = FALSE)
   
   correlation.gdp.suicide <- rbind(
     correlation.gdp.suicide,
     list(
       country = c,
-      correlation = corr
+      correlation = corr$estimate,
+      p.value = corr$p.value,
+      significant = corr$p.value < 0.05
     )
   )
 }
@@ -355,9 +361,23 @@ head(correlation.gdp.suicide)
 tail(correlation.gdp.suicide)
 ```
 
-We can see that this provided us with a much more better insight into the data, and that there is truly a relationship
-between the suicide rates within a country and gross domestic product of the country. The relationship seems to be very
-strong for a 
+We can see that this provided us with a much more better insight into the data, and that there is truly a relationship between the suicide rate in a country and the gross domestic product of that country.
+This relationship seems to be quite strong for a considerable amount of countries.
+Some of the countries achieve a large positive correlation and some achieve a large negative correlation.
+However, they are not distributed equally, as negative correlations are present more often than the positive ones.
+All the correlations (with the exception of Cyprus) whose absolute value is larger than 0.4 are statistically significant with confidence level $\alpha = 0.05$.
+
+```{r}
+correlation.gdp.suicide %>%
+  filter(p.value < 0.05) %>%
+  ggplot(aes(x = correlation)) +
+  geom_histogram(binwidth = 0.1, center = 0.1) +
+  scale_x_continuous(breaks = seq(-1, 1, 0.1)) +
+  labs(title = "Histogram of statistically significant correlations of suicide rate and GDP")
+```
+
+Let's inspect this relationship further by plotting the suicide rate against GDP
+for six of the countries that achieved the largest negative correlations.
 
 ```{r fig.width=8}
 
@@ -393,8 +413,10 @@ data %>% filter(country %in% top.corr.countries) %>%
 
 ```
 
-It is also worth noting that all of these
-countries are European.
+We can see that plotting the data allows us to easily notice the relationship between these two variables.
+It is also worth noting that all of these countries achieving the largest negative correlations are European.
+
+We can do the same for countries that achieved the largest positive correlation.
 
 ```{r fig.width=8}
 
@@ -429,9 +451,14 @@ data %>% filter(country %in% top.corr.countries) %>%
   theme(legend.position = "none")
 ```
 
+Once again, the interaction between suicide rate and GDP is easily recognizable, although in some cases
+(e.g. Montenegro) it does not seem to be as well structured as it has been for the negative correlations.
+
+Another thing I would like to investigate is whether there is a connection between the overall suicide rate
+of a country and its dependence on the GDP of the country.
+
 
 ```{r}
-
 data %>%
   filter(country %in% correlation.gdp.suicide$country) %>%
   group_by(continent, country) %>%
@@ -442,18 +469,24 @@ data %>%
     gdp_per_capita = mean(gdp_per_capita),
     .groups = "keep") %>%
   inner_join(correlation.gdp.suicide, by = "country") %>%
-  ggplot(aes(x = correlation, y = suicides_per_100k, color = continent)) +
+  # filter(p.value < 0.05) %>% 
+  ggplot(aes(x = correlation, y = suicides_per_100k, color = continent, shape = significant)) +
   geom_point() +
   labs(title = "Relationship between suicide rate and its correlation with GDP",
        subtitle = "Correlation is reported using Spearman's Rho",
        x = "Correlation", y = "Suicides per 100k people")
-
 ```
+The plot includes the correlations even if they were not statistically significant.
 It seems that the countries, where the suicide rate is highly correlated with the gross domestic
 product, tend to have higher suicide rates than the countries where the correlation with GDP
 is not very strong. This can be observed on both ends of the correlation's value range, however it is
 far more pronounced for countries that achieve a negative correlation.
-It is also apparent that the majority of countries that achieve a high correlation is European.
+
+We can also observe that the suicide rates of countries that achieve a large negative correlation tend
+to be larger than of countries that achieve a large positive correlation.
+
+Once again, it is worth noting that the majority of countries that achieve a negative correlation is European.
+Let's see what correlations did individual European countries achieve.
 
 ```{r fig.height=4, fig.width=8}
 
@@ -465,7 +498,7 @@ correlation.gdp.suicide %>%
   ggplot(aes(x = reorder(country, correlation), y = correlation, fill = correlation)) +
   geom_bar(stat = "identity") +
   scale_fill_viridis_c() +
-  scale_y_continuous(limits = c(-1, 1)) +
+  scale_y_continuous(limits = c(-1, 1), breaks = seq(-1, 1, 0.1)) +
   labs(title = "Correlations of European countries",
        x = "Country", y = "Correlation") +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
@@ -477,8 +510,6 @@ We can see that most of the European countries truly achieve large negative corr
 suicide rates and GDP. However, there are a few exceptions, where these two variables
 are correlated positively.
 
-
-Correlation between suicide rate and alcohol consumption.
 
 ```{r}
 data_japan <- data %>% filter(country == "Japan")
@@ -532,12 +563,6 @@ clustering.data.numeric <- clustering.data %>% dplyr::select(correlation, suicid
 
 clustering <- kmeans(clustering.data.numeric, 6)
 
-# clustering.data %>% cbind(cluster = as.factor(clustering$cluster)) %>%
-#   ggplot(aes(x = correlation, y = suicides_per_100k, color = cluster)) +
-#   scale_color_viridis_d() +
-#   geom_point() +
-#   geom_point(data = data.frame(clustering$centers, cluster = factor(c(1, 2, 3))), shape)
-
 fviz_cluster(clustering, data = clustering.data.numeric, labelsize = 0) +
   labs(title = "Clustering countries based on their dependence on GDP",
        subtitle = "Both features have been normalized",
@@ -566,7 +591,6 @@ Furthermore, the features $\texttt{gdp_for_year}$ and $\texttt{gdp_per_capita}$ 
 use one of these features in combination with the sum of total population in a country in a certain year to get the value of the other
 feature, e.g. $\texttt{gdp_per_capita} = \frac{\texttt{gdp_for_year}}{\texttt{total_population}}$.
 
-
 ```{r}
 data %>% group_by(country, year, gdp_for_year, gdp_per_capita) %>%
   summarise(population = sum(population)) %>%
@@ -579,12 +603,19 @@ data %>% group_by(country, year, gdp_for_year, gdp_per_capita) %>%
 
 ### Conclusion
 
+We have uncovered many things during the exploratory data analysis. First of all, we have seen that
+the world experienced a sudden rise in suicide rates during 1989-1995, but these have been on
+decline since then. We also inspected the difference in suicide rates between the individual continents.
+This revealed that Europe has the highest suicide rate, followed by Asia. Inspection of the suicide rates
+in European countries shown us that Lithuania has the highest suicide rate, however the number of suicides
+has been the largest in Russia.
 
-
+We have also seen that women 
 
 ## Hypotheses Testing
 
 Based on the previous analysis I would like to test several hypotheses.
+The confidence level is set to be $\alpha = 0.05$.
 
 ### Suicide rates of men and women
 
@@ -592,16 +623,16 @@ The first hypothesis that I will test is that that men tend to commit
 suicide more often than women. Therefore, I will test if the suicide rate of men
 was higher than that of women during the time interval 1985-2015.
 
-The null hypothesis is that
+Let $\mu_m$ and $\mu_w$ be the means of suicide rates of men and women, respectively.
+
+The null hypothesis is then
 $$ \mu_m \leq \mu_w $$ 
-and the alternative hypothesis is that
+and the alternative hypothesis is
 $$ \mu_m > \mu_w $$
 where $\mu_m$ and $\mu_w$ are the means of suicide rates of men and women during
 the time period 1985-2015, respectively. The confidence level is set to be $\alpha = 0.05$.
 
 In order to test this hypothesis, I will make use of Welch's Two Sample t-test,
-
-Where $\mu_m$ and $\mu_w$ are the mean suicide rates of men and women, respectively.
 
 In order to test this hypothesis, I will make use of the Welch's Two Sample t-test,
 which is a modification of Student's t-test supporting unequal variances of the samples.
@@ -629,7 +660,7 @@ t.test(
 ```
 
 We can see that the resulting p-value of the Welch's Two Sample t-test
-is smaller than our confidence level, and therefore we reject the null hypothesis
+is smaller than our confidence level, and because of that we can reject the null hypothesis
 in favor of the alternative hypothesis. We have confirmed our initial suspicion,
 that is that men have higher suicide rates than women.
 
@@ -639,7 +670,106 @@ that is that men have higher suicide rates than women.
 Another interesting insight gained from the exploratory analysis was that there
 is an apparent difference in suicide rates between individual age groups.
 
+Usually, we could use ANOVA to test if at least one of the groups differs significantly
+from the rest of the groups. Unfortunately, our data violates certain assumptions of this method,
+namely the normality assumption, which requires every group to be normally distributed.
+
+We can easily show the violation of this assumption by inspecting one of the age groups,
+for example the group containing people older than 75 years. We can check whether it is
+normally distributed by taking a look at the histogram of differences of suicide rates
+throughout the years and their mean.
+
+```{r}
+
+age.old.rates <- data %>%
+  filter(age == "75+") %>%
+  group_by(year) %>%
+  summarise(
+      population = sum(population),
+      suicides_no = sum(suicides_no),
+      suicides_per_100k = (suicides_no / population) * 100000)
+
+(data.frame(residual = age.old.rates$suicides_per_100k - mean(age.old.rates$suicides_per_100k))) %>%
+  ggplot(aes(x = residual)) +
+  scale_fill_viridis_c() +
+  geom_histogram(binwidth = 2,
+                 center = 1,
+                 fill = viridis::viridis(1, begin = 0.7),
+                 color = viridis::viridis(1, begin = 0.8)) +
+  labs(title = "Histogram of differences of yearly suicide rates and their mean",
+       subtitle = "for people that are 75+ years old",
+       x = "Residual", y = "Count")
+
+```
+
+This histogram indicates that the distribution of suicide rates in fact does not originate
+from the normal distribution.
+
+Due to this assumption being violated, we are forced to use a different method,
+the Kruskal-Wallis test, which can be used even if the normality assumption does not hold.
+This method will allow us to test a similar hypothesis.
 
 
 
+```{r}
+
+age.hypothesis.data <- data %>%
+  group_by(year, age) %>%
+  summarise(
+      population = sum(population),
+      suicides_no = sum(suicides_no),
+      suicides_per_100k = (suicides_no / population) * 100000,
+      .groups = "keep"
+    )
+
+kruskal.test(suicides_per_100k ~ age, data = age.hypothesis.data)
+
+```
+
+
+### Higher suicide rates in countries with negative correlation
+
+During the analysis we have seen that countries that achieve large negative correlation have
+a larger suicide rate than countries that achieve a large positive correlation. It might be
+interesting to test this hypothesis.
+
+Let us create two subsets of the countries based on their correlations. The first group will contain
+countries that achieved correlations smaller than $-0.6$, and the other group will contain countries
+whose suicide rate and GDP correlation was larger than $0.6$.
+
+Let $\mu_l$ and $mu_h$ be the mean suicide rates of countries of the first and second group, respectively.
+
+The null hypothesis is then
+$$ \mu_l \leq \mu_h $$
+and the alternative hypothesis is
+$$ \mu_l > \mu_h $$
+
+Once again, we will make use of the Welch's Two Sample t-test.
+
+
+```{r}
+signif.corr <- data %>%
+  filter(country %in% correlation.gdp.suicide$country) %>%
+  group_by(continent, country) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    gdp_per_capita = mean(gdp_per_capita),
+    .groups = "keep") %>%
+  inner_join(correlation.gdp.suicide, by = "country") %>%
+  filter(p.value < 0.05)
+
+t.test(x = signif.corr %>% filter(correlation < -0.6) %>% pull(suicides_per_100k),
+       y = signif.corr %>% filter(correlation > 0.6) %>% pull(suicides_per_100k),
+       alternative = "greater")
+  
+```
+
+The resulting p-value is less than our predefined confidence level, therefore we reject the null hypothesis
+in favor of the alternative hypothesis.
+
+The other hypothesis I would like to test is that countries with large absolute values of the suicide rate
+and GDP correlation have higher suicide rates than countries that have a small absolute correlation.
+However, I did not want to base this hypothesis on the data contained in this dataset, since the small correlations did not turn out to be statistically significant.
 
