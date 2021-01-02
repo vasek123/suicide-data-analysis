@@ -750,23 +750,41 @@ However, I did not want to base this hypothesis on the data contained in this da
 ```{r}
 
 europe.data <- data %>%
-  filter(continent == "Europe") %>%
-  mutate(suicides_per_100k = (suicides_no / population) * 100000) %>%
-  dplyr::select(-one_of("continent", "generation", "country", "suicides_no", "year")) %>%
-  mutate(suicides_per_100k = scale(suicides_per_100k),
-         gdp_for_year = scale(gdp_for_year),
-         gdp_per_capita = scale(gdp_per_capita))
+  filter(continent == "Europe" & country == "Hungary") %>%
+  group_by(year, sex, age, gdp_per_capita) %>%
+  summarise(population = sum(population),
+            suicides_no = sum(suicides_no),
+            suicides_per_100k = (suicides_no / population) * 100000) %>%
+  select(-one_of(c("continent", "suicides_no", "year")))
 
-europe.train.idx <- createDataPartition(europe.data$suicides_per_100k, p = 0.75, list = FALSE)
+# Hot one encoding
+dummies <- dummyVars(suicides_per_100k ~ ., data = europe.data)
+europe.data.encoded <- predict(dummies, newdata = europe.data)
 
-europe.train.data <- europe.data[europe.train.idx, ]
-europe.test.data <- europe.data[-europe.train.idx, ]
+print(colnames(europe.data.encoded))
+
+europe.train.idx <- createDataPartition(europe.data$suicides_per_100k, p = 0.7, list = FALSE)
+
+europe.train.data <- europe.data.encoded[europe.train.idx, ]
+europe.test.data <- europe.data.encoded[-europe.train.idx, ]
+
+preProcValues <- preProcess(europe.train.data, method = c("center", "scale"))
+
+europe.train.data <- data.frame(predict(preProcValues, europe.train.data))
+europe.train.data <- cbind(europe.train.data, suicides_per_100k = europe.data$suicides_per_100k[europe.train.idx])
+
+europe.test.data <- data.frame(predict(preProcValues, europe.test.data))
+
 fitControl <- trainControl(method = "cv", number = 10)
 
 model <- train(suicides_per_100k ~ ., data = europe.train.data,
       method = "lasso", trControl = fitControl)
 
-model
+print(model)
+tail(model$finalModel$beta.pure, 1)
+
+# mean((predict(model$finalModel, newx = europe.test.data, lambda = 0.9)$fit[, 6] - europe.data$suicides_per_100k[-europe.train.idx]) ^ 2)
+
 
 ```
 
