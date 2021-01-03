@@ -761,18 +761,16 @@ However, I did not want to base this hypothesis on the data contained in this da
 
 ## 3. Suicide Rate Prediction Model
 
-### Linear regression
+### Encode categorical features
 
 ```{r}
 
+# Compute the suicide rate
 ml.data <- data %>%
   mutate(suicide_rate = (suicides_no / population) * 100000)
 
 selected.columns <- c("suicide_rate", "population", "age", "sex", "gdp_per_capita",
                       "gdp_for_year", "country", "continent", "year")
-
-# perc_99 <- quantile(ml.data$suicide_rate, probs = 0.95)
-# ml.data <- ml.data %>% select(selected.columns) %>% filter(suicide_rate < perc_99)
 
 # Hot one encoding the nominal variables
 dummies <- dummyVars( ~ sex + continent + country, data = ml.data, fullRank = TRUE)
@@ -786,56 +784,47 @@ ml.data.encoded <- as_tibble(cbind(ml.data[, c("population", "gdp_per_capita", "
                          age = as.numeric(ml.data$age),
                          generation = as.numeric(ml.data$generation),
                          ml.data.encoded.nominal))
-
-formula = as.formula(" ~ .")
-
-X <- model.matrix(formula, data = ml.data.encoded)
-y <- ml.data$suicide_rate
-
-ctrl <- rfeControl(functions = lmFuncs,
-                   method = "cv",
-                   verbose = FALSE)
-
-lmProfile <- rfe(X, y,
-                 sizes = c(1:2),
-                 rfeControl = ctrl)
-
-lin.reg.model <- train(x = X, y = y,
-                       method = "lm",
-                       trControl = trainControl(method = "cv", number = 10))
-
-summary(lin.reg.model)
 
 ```
 
 
-### Polynomial regression
+### Simple Lasso
 
 ```{r}
 
-ml.data <- data %>%
-  mutate(suicide_rate = (suicides_no / population) * 100000)
+formula = as.formula(" ~ .")
 
-selected.columns <- c("suicide_rate", "population", "age", "sex", "gdp_per_capita",
-                      "gdp_for_year", "country", "continent", "year")
+# Partition the dataset into the training and testing subsets
+train.idx <- createDataPartition(ml.data$suicide_rate, p = 0.7, list = FALSE)
 
-# perc_99 <- quantile(ml.data$suicide_rate, probs = 0.95)
-# ml.data <- ml.data %>% select(selected.columns) %>% filter(suicide_rate < perc_99)
+y.train <- ml.data[train.idx, ]$suicide_rate
+y.test <- ml.data[-train.idx, ]$suicide_rate
 
-# Hot one encoding the nominal variables
-dummies <- dummyVars( ~ sex + continent + country, data = ml.data, fullRank = TRUE)
-ml.data.encoded.nominal <- predict(dummies, newdata = ml.data)
+# Encode the data into required model
+X.train <- data.frame(ml.data.encoded[train.idx, ])
+X.train <- sparse.model.matrix(formula, data = X.train)
 
-# Tidy up the column names so that no space characters are present
-colnames(ml.data.encoded.nominal) <- make.names(colnames(ml.data.encoded.nominal), unique = TRUE)
+X.test <- data.frame(ml.data.encoded[-train.idx, ])
+X.test <- sparse.model.matrix(formula, data = X.test)
 
-# Append the encoded ordinal variables and put everything back together
-ml.data.encoded <- as_tibble(cbind(ml.data[, c("population", "gdp_per_capita", "gdp_for_year", "year")],
-                         age = as.numeric(ml.data$age),
-                         generation = as.numeric(ml.data$generation),
-                         ml.data.encoded.nominal))
+# Run cross-validated LASSO
+lasso.base.model <- cv.glmnet(x = X.train, y = y.train, type.measure = "mse")
+lasso.base.model
+
+# Performance on the test dataset
+prediction <- predict(lasso.base.model, newx = X.test)
+postResample(pred = prediction, y.test)
+
+```
+
+
+### Lasso with polynomial features
+
+```{r}
 
 # Create the model formula
+# This formula includes all of the features as well as their squares and all of the
+# interactions between different features up to second degree
 formula <- as.formula(paste(" ~ .^2 + ",
                             paste("poly(",
                                   colnames(ml.data.encoded),
@@ -854,16 +843,9 @@ X.train <- sparse.model.matrix(formula, data = X.train)
 X.test <- data.frame(ml.data.encoded[-train.idx, ])
 X.test <- sparse.model.matrix(formula, data = X.test)
 
-# Prepare the data pre-processor
-# preProcValues <- preProcess(train.data, method = c("center", "scale"))
-# train.data <- predict(preProcValues, train.data)
-# test.data <- predict(preProcValues, test.data)
-
-model <- cv.glmnet(x = X.train,
-                   y = y.train,
-                   type.measure = "mse")
-
-model
+# Run the cross-validated LASSO
+lasso.poly.model <- cv.glmnet(x = X.train, y = y.train, type.measure = "mse")
+lasso.poly.model
 
 prediction <- predict(model, newx = X.test)
 postResample(pred = prediction, y.test)
