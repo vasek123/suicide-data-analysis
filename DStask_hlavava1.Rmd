@@ -8,8 +8,11 @@ output: html_notebook
 library(gridExtra)
 library(factoextra)
 library(caret)
+library(glmnet)
 library(MASS)
 library(tidyverse)
+library(xgboost)
+library(Matrix)
 theme_set(theme_gray())
 ```
 
@@ -542,6 +545,19 @@ fviz_cluster(clustering, data = clustering.data.numeric, labelsize = 0) +
 
 ```
 
+```{r}
+data %>%
+  group_by(country, gdp_for_year, gdp_per_capita, continent) %>%
+  summarise(population = sum(population),
+            suicides_no = sum(suicides_no),
+            suicide_rate = (suicides_no / population) * 100000) %>%
+  ggplot(aes(x = gdp_per_capita, y = suicide_rate, color = country)) +
+  geom_point() +
+  theme(legend.position = "none")
+
+```
+
+
 ### Dimension Reduction
 
 The $\texttt{generation}$ feature is redundant, since we can assign a generation to a group of population by combining the information
@@ -745,74 +761,111 @@ However, I did not want to base this hypothesis on the data contained in this da
 
 ## 3. Suicide Rate Prediction Model
 
-### Europe prediction
+### Linear regression
 
 ```{r}
 
-europe.data <- data %>%
-  filter(continent == "Europe" & country == "Hungary") %>%
-  group_by(year, sex, age, gdp_per_capita) %>%
-  summarise(population = sum(population),
-            suicides_no = sum(suicides_no),
-            suicides_per_100k = (suicides_no / population) * 100000) %>%
-  select(-one_of(c("continent", "suicides_no", "year")))
+ml.data <- data %>%
+  mutate(suicide_rate = (suicides_no / population) * 100000)
 
-# Hot one encoding
-dummies <- dummyVars(suicides_per_100k ~ ., data = europe.data)
-europe.data.encoded <- predict(dummies, newdata = europe.data)
+selected.columns <- c("suicide_rate", "population", "age", "sex", "gdp_per_capita",
+                      "gdp_for_year", "country", "continent", "year")
 
-print(colnames(europe.data.encoded))
+# perc_99 <- quantile(ml.data$suicide_rate, probs = 0.95)
+# ml.data <- ml.data %>% select(selected.columns) %>% filter(suicide_rate < perc_99)
 
-europe.train.idx <- createDataPartition(europe.data$suicides_per_100k, p = 0.7, list = FALSE)
+# Hot one encoding the nominal variables
+dummies <- dummyVars( ~ sex + continent + country, data = ml.data, fullRank = TRUE)
+ml.data.encoded.nominal <- predict(dummies, newdata = ml.data)
 
-europe.train.data <- europe.data.encoded[europe.train.idx, ]
-europe.test.data <- europe.data.encoded[-europe.train.idx, ]
+# Tidy up the column names so that no space characters are present
+colnames(ml.data.encoded.nominal) <- make.names(colnames(ml.data.encoded.nominal), unique = TRUE)
 
-preProcValues <- preProcess(europe.train.data, method = c("center", "scale"))
+# Append the encoded ordinal variables and put everything back together
+ml.data.encoded <- as_tibble(cbind(ml.data[, c("population", "gdp_per_capita", "gdp_for_year", "year")],
+                         age = as.numeric(ml.data$age),
+                         generation = as.numeric(ml.data$generation),
+                         ml.data.encoded.nominal))
 
-europe.train.data <- data.frame(predict(preProcValues, europe.train.data))
-europe.train.data <- cbind(europe.train.data, suicides_per_100k = europe.data$suicides_per_100k[europe.train.idx])
+formula = as.formula(" ~ .")
 
-europe.test.data <- data.frame(predict(preProcValues, europe.test.data))
+X <- model.matrix(formula, data = ml.data.encoded)
+y <- ml.data$suicide_rate
 
-fitControl <- trainControl(method = "cv", number = 10)
+ctrl <- rfeControl(functions = lmFuncs,
+                   method = "cv",
+                   verbose = FALSE)
 
-model <- train(suicides_per_100k ~ ., data = europe.train.data,
-      method = "lasso", trControl = fitControl)
+lmProfile <- rfe(X, y,
+                 sizes = c(1:2),
+                 rfeControl = ctrl)
 
-print(model)
-tail(model$finalModel$beta.pure, 1)
+lin.reg.model <- train(x = X, y = y,
+                       method = "lm",
+                       trControl = trainControl(method = "cv", number = 10))
 
-# mean((predict(model$finalModel, newx = europe.test.data, lambda = 0.9)$fit[, 6] - europe.data$suicides_per_100k[-europe.train.idx]) ^ 2)
-
+summary(lin.reg.model)
 
 ```
 
 
+### Polynomial regression
+
 ```{r}
 
-europe.data <- data %>%
-  filter(continent == "Europe") %>%
-  group_by(year, country, gdp_per_capita) %>%
-  summarise(population = sum(population),
-            suicides_no = sum(suicides_no),
-            suicides_per_100k = (suicides_no / population) * 100000,
-            )
-  # dplyr::select(all_of("continent", "generation", "country", "suicides_no", "year"))
-  # mutate(suicides_per_100k = scale(suicides_per_100k),
-         # gdp_for_year = scale(gdp_for_year),
-         # gdp_per_capita = scale(gdp_per_capita))
+ml.data <- data %>%
+  mutate(suicide_rate = (suicides_no / population) * 100000)
 
-europe.train.idx <- createDataPartition(europe.data$suicides_per_100k, p = 0.75, list = FALSE)
+selected.columns <- c("suicide_rate", "population", "age", "sex", "gdp_per_capita",
+                      "gdp_for_year", "country", "continent", "year")
 
-europe.train.data <- europe.data[europe.train.idx, ]
-europe.test.data <- europe.data[-europe.train.idx, ]
-fitControl <- trainControl(method = "cv", number = 10)
+# perc_99 <- quantile(ml.data$suicide_rate, probs = 0.95)
+# ml.data <- ml.data %>% select(selected.columns) %>% filter(suicide_rate < perc_99)
 
-model <- train(suicides_per_100k ~ ., data = europe.train.data,
-      method = "lasso", trControl = fitControl)
+# Hot one encoding the nominal variables
+dummies <- dummyVars( ~ sex + continent + country, data = ml.data, fullRank = TRUE)
+ml.data.encoded.nominal <- predict(dummies, newdata = ml.data)
+
+# Tidy up the column names so that no space characters are present
+colnames(ml.data.encoded.nominal) <- make.names(colnames(ml.data.encoded.nominal), unique = TRUE)
+
+# Append the encoded ordinal variables and put everything back together
+ml.data.encoded <- as_tibble(cbind(ml.data[, c("population", "gdp_per_capita", "gdp_for_year", "year")],
+                         age = as.numeric(ml.data$age),
+                         generation = as.numeric(ml.data$generation),
+                         ml.data.encoded.nominal))
+
+# Create the model formula
+formula <- as.formula(paste(" ~ .^2 + ",
+                            paste("poly(",
+                                  colnames(ml.data.encoded),
+                                  ", degree = 2, raw = TRUE)[, 2]",
+                                  collapse = " + ")))
+
+# Partition the dataset into the training and testing subsets
+train.idx <- createDataPartition(ml.data$suicide_rate, p = 0.7, list = FALSE)
+
+y.train <- ml.data[train.idx, ]$suicide_rate
+y.test <- ml.data[-train.idx, ]$suicide_rate
+
+X.train <- data.frame(ml.data.encoded[train.idx, ])
+X.train <- sparse.model.matrix(formula, data = X.train)
+
+X.test <- data.frame(ml.data.encoded[-train.idx, ])
+X.test <- sparse.model.matrix(formula, data = X.test)
+
+# Prepare the data pre-processor
+# preProcValues <- preProcess(train.data, method = c("center", "scale"))
+# train.data <- predict(preProcValues, train.data)
+# test.data <- predict(preProcValues, test.data)
+
+model <- cv.glmnet(x = X.train,
+                   y = y.train,
+                   type.measure = "mse")
 
 model
 
-```
+prediction <- predict(model, newx = X.test)
+postResample(pred = prediction, y.test)
 
+```
