@@ -847,6 +847,7 @@ X.test <- sparse.model.matrix(formula, data = X.test)
 lasso.poly.model <- cv.glmnet(x = X.train, y = y.train, type.measure = "mse")
 lasso.poly.model
 
+print("Test dataset performance")
 prediction <- predict(model, newx = X.test)
 postResample(pred = prediction, y.test)
 
