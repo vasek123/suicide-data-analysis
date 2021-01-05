@@ -33,6 +33,9 @@ I begin by inspecting whether the dataset contains any NA values that would need
 ```{r}
 data %>% is.na() %>% colSums()
 ```
+
+It seems that the dataset has already been conveniently cleaned beforehand.
+
 Did all of the included countries contribute the same amount of data? Are there
 any countries that reported their statistics far less often than other countries?
 
@@ -46,11 +49,7 @@ years.count %>%
   scale_x_continuous(n.breaks = 31) +
   geom_bar()
 ```
-
-
-We can see that there are some countries that contributed only 3 years worth of
-data or less.
-
+It looks that a significant number of countries provided data about the number suicides within their population most of the years during 1985-2015. However there are some countries that supplied only less than 10 year worth of data.
 
 ### Suicide rate
 
@@ -67,7 +66,8 @@ country.summary <- data %>% group_by(year) %>%
 cor(x = country.summary$population, y = country.summary$suicides_no)
 ```
 
-If we wanted to be even more rigorous with our analysis, we could standardize our suicide rates by age distribution.
+If we wanted to be even more rigorous with our analysis, we could standardize our suicide rates by age distribution,
+as is done by the World Health Organization.
 
 
 ### Global trend inspection
@@ -119,6 +119,9 @@ differences %>%
 ```
 The figure above shows us the differences in suicide rates between two subsequent years.
 
+Rather than inspecting the data worldwide, we can take a look at the progression of suicide rates within each of the
+continents and check wheter there appears to be any differences between them.
+
 ```{r fig.height=7}
 
 continent_overall_plot <- data %>% group_by(continent) %>%
@@ -152,8 +155,20 @@ continent_by_year_plot <- data %>% group_by(year, continent) %>%
 
 grid.arrange(continent_overall_plot, continent_by_year_plot, ncol = 2)
 ```
+It turns out that there certainly is a difference in suicide rates between the continents. The progress in Europe seems
+to be the most. It is worth noting that the data for Oceania and the Americas suggest that the suicide rates have been
+on rise in the most recent years, which means that these continents do not comply with the worldwide trend.
 
-It also looks like the data from Africa is not very good.
+The reason that the worldwide trend suggests that suicide rates are decreasing is the decrease of suicide rates within
+European countries. The suicide rates in Europe are large enough to dominate the suicide rates within the other continents.
+Therefore, they also dictate the worldwide trend. Europe also has the highest overall suicide rate during the inspected
+time period.
+
+I cannot recognize any trend within the Asian countries.
+
+The data from African countries may be incomplete. There is a very pronounced and sudden decline in suicide rates after 
+the year 1995. I do not think that this data represents the real situation within the African countries, and suspect that
+the quality of data collection and suicide reports might be the culprit here.
 
 ```{r}
 data %>%
@@ -162,6 +177,8 @@ data %>%
   summarise(reports = n_distinct(year)) %>%
   arrange(reports)
 ```
+
+Let's inspect the European countries in more detail, since Europe has the highest suicide rate in the world.
 
 ```{r fig.height = 6}
 
@@ -186,6 +203,8 @@ data_europe %>%
   
 ```
 
+The country with the largest suicide rate is Lithuania, followed by the Russian Federation and Belarus. It seems that a large number of the countries with high suicide rate seem to be East European.
+
 ```{r fig.height = 6}
 
 data_europe %>%
@@ -198,8 +217,21 @@ data_europe %>%
        x = "Country", y = "Number of suicides")
   
 ```
+```{r}
+data %>% filter(country == "Russian Federation") %>%
+  select(suicides_no) %>%
+  sum()
+
+data %>% filter(country != "Russian Federation") %>%
+  select(suicides_no) %>%
+  sum()
+```
+
+Inspecting the concrete number of suicides in the European countries reveals that the Russian Federation is the country with the most suicides, and that the number of suicides is much greater than in the other countries. This can be explained by Russia being the European country with the largest population and also having the second highest overall suicide rate in Europe.
 
 ### Differences between sexes
+
+A significant factor in suicide risk can be the sex of the person.
 
 ```{r}
 data %>% group_by(year, sex) %>%
@@ -239,7 +271,7 @@ data %>% group_by(continent, sex) %>%
 ```
 We can also inspect the differences between the sexes on within individual
 continents. This again reveals the same pattern for all of the continents,
-that men 
+that is that men are at higher risk of suicide than women.
 
 ```{r fig.height=7, fig.width=7}
 data %>% group_by(continent, sex, year) %>%
@@ -256,10 +288,11 @@ data %>% group_by(continent, sex, year) %>%
   scale_x_continuous(breaks = seq(1985, 2015, 2)) +
   theme(legend.position = "bottom")
 ```
-The suicide rates of women are consistently lower than those of men across all
-of the inspected continents.
+By inspecting the progression of suicide rates of sexes within different continents, we can state that the suicide rates of women are consistently lower than those of men across all of the inspected continents.
 
 ### Age
+
+Another factor that might play a role in the suicide risk is the age of the person.
 
 ```{r}
 data %>% group_by(year, age) %>%
@@ -276,6 +309,9 @@ data %>% group_by(year, age) %>%
   labs(title = "Relationship between suicide rate and age",
        x = "Year", y = "Suicides per 100k people")
 ```
+
+It seems that if we inspect the suicide data globally, there in fact is a difference is suicide rates between different
+age groups. More over, the risk of suicide seems to grow larger with the age of the person.
 
 ```{r fig.height=10, fig.width=8}
 data %>% group_by(continent, year, age) %>%
@@ -294,6 +330,13 @@ data %>% group_by(continent, year, age) %>%
        x = "Year", y = "Suicides per 100k people")
 ```
 
+However, if we inspect the dependence on suicide rate on age within individual continents, we can see that the previous
+observation does not hold true everywhere in the world.
+
+The differences between age groups are most pronounced in the Asian and European countries. There is also some difference
+between the age groups in the Americas, though they do not appear as pronounced as in the two previously mentioned continents.
+
+On the other hand, if we take a look at the data from Oceania, we can see that there does not appear to be any striking dependence of the suicide rate on the age group.
 
 
 ### Correlation Between GDP and Suicide Rates
@@ -318,9 +361,14 @@ data %>% group_by(continent, country) %>%
   
 
 ```
-This figure does not seem to reveal any relationship between these variables. We can also try to calculate the correlations
-between these two variables over the same time interval for each of the countries individually. The correlations were computed using Spearman's rho, since the relationship between the two variables is not expected to be linear.
-The correlations have been computed only for the countries where 10 or more years of data has been available.
+The first attempt to investigate the relationship between these two variables can be plotting the
+overall suicide rate of a country against its mean GDP per capita during the available time period.
+However, this figure does not seem to reveal any obvious relationship between these variables.
+
+We can also try to calculate the correlations between these two variables over the same time interval
+for each of the countries individually. The correlations were computed using Spearman's rho, since
+the relationship between the two variables is not expected to be linear. The correlations have been
+computed only for the countries where 10 or more years of data has been available.
 
 ```{r}
 
@@ -847,8 +895,15 @@ X.test <- sparse.model.matrix(formula, data = X.test)
 lasso.poly.model <- cv.glmnet(x = X.train, y = y.train, type.measure = "mse")
 lasso.poly.model
 
+print("Minimal RMSE attained for lambda:")
+print(lasso.poly.model$lambda.min)
+
 print("Test dataset performance")
-prediction <- predict(model, newx = X.test)
+prediction <- predict(lasso.poly.model, s = lasso.poly.model$lambda.min, newx = X.test)
 postResample(pred = prediction, y.test)
 
 ```
+```{r}
+plot(lasso.poly.model)
+```
+
