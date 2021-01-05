@@ -1,6 +1,6 @@
 ---
 title: "Suicide Prevention and Analysis"
-output: html_notebook
+author: "Václav Hlaváč"
 ---
 
 
@@ -169,14 +169,6 @@ I cannot recognize any trend within the Asian countries.
 The data from African countries may be incomplete. There is a very pronounced and sudden decline in suicide rates after 
 the year 1995. I do not think that this data represents the real situation within the African countries, and suspect that
 the quality of data collection and suicide reports might be the culprit here.
-
-```{r}
-data %>%
-  filter(continent == "Africa") %>%
-  group_by(country) %>%
-  summarise(reports = n_distinct(year)) %>%
-  arrange(reports)
-```
 
 Let's inspect the European countries in more detail, since Europe has the highest suicide rate in the world.
 
@@ -567,6 +559,12 @@ are correlated positively.
 
 ### Clustering
 
+The plot of an average suicide rate of a country against its correlation with
+the country's GDP per capita was really interesting to me, and therefore I would
+like to try to separate the individual countries using K-means clustering.
+
+First, let us select the data that will be used for clustering.
+
 ```{r}
 clustering.data <- data %>%
   filter(country %in% correlation.gdp.suicide$country) %>%
@@ -579,31 +577,65 @@ clustering.data <- data %>%
   inner_join(correlation.gdp.suicide, by = "country") %>%
   mutate(suicides_per_100k = scale(suicides_per_100k),
          correlation = scale(correlation)) %>%
-  dplyr::select("country", "correlation", "suicides_per_100k")
-
-clustering.data.numeric <- clustering.data %>% dplyr::select(correlation, suicides_per_100k)
-
-clustering <- kmeans(clustering.data.numeric, 6)
-
-fviz_cluster(clustering, data = clustering.data.numeric, labelsize = 0) +
-  labs(title = "Clustering countries based on their dependence on GDP",
-       subtitle = "Both features have been normalized",
-       x = "GDP and Suicide rate correlation")
-
-
+  dplyr::select("correlation", "suicides_per_100k")
 ```
 
+Now, we can utilize the elbow method in order to select the number of clusters.
+
 ```{r}
-data %>%
-  group_by(country, gdp_for_year, gdp_per_capita, continent) %>%
-  summarise(population = sum(population),
-            suicides_no = sum(suicides_no),
-            suicide_rate = (suicides_no / population) * 100000) %>%
-  ggplot(aes(x = gdp_per_capita, y = suicide_rate, color = country)) +
+set.seed(42)
+k.max <- 15
+wss <- sapply(1:k.max, 
+              function(k) { kmeans(clustering.data, k, nstart=50,iter.max = 15 )$tot.withinss })
+
+elbow <- data.frame(k = c(1:k.max), wss = wss)
+
+elbow %>%
+  ggplot(aes(x = k, y = wss, color = "orange")) +
+  geom_line() +
   geom_point() +
+  scale_x_continuous(breaks = seq(1, k.max, 1)) +
+  labs(title = "The change of the total within cluster sum of squares with number of clusters",
+       x = "Number of clusters", y = "Total within cluster sum of squares") +
   theme(legend.position = "none")
 
 ```
+
+We can see that decline slows down after creating 4 clusters, and therefore
+we will set $k = 4$.
+
+```{r}
+clustering.data <- data %>%
+  filter(country %in% correlation.gdp.suicide$country) %>%
+  group_by(country) %>%
+  summarise(
+    population = sum(population),
+    suicides_no = sum(suicides_no),
+    suicides_per_100k = (suicides_no / population) * 100000,
+    gdp_per_capita = mean(gdp_per_capita)) %>%
+  inner_join(correlation.gdp.suicide, by = "country") %>%
+  mutate(suicides_per_100k = scale(suicides_per_100k),
+         correlation = scale(correlation)) %>%
+  dplyr::select("correlation", "suicides_per_100k")
+
+set.seed(1234)
+clustering <- kmeans(clustering.data, 4)
+
+fviz_cluster(clustering, data = clustering.data, labelsize = 0) +
+  labs(title = "Clustering countries based on their dependence on GDP",
+       subtitle = "Both features have been normalized",
+       x = "GDP and Suicide rate correlation",
+       y = "Suicides per 100k people")
+
+
+```
+
+It looks like that the first cluster is comprised of countries where the suicide rate
+has a strong negative correlation with the GDP and the suicide rate is above average.
+The second cluster is also made out of countries with strong correlation, however
+it is positive instead of negative. The suicide rate is also higher than average for
+most of the countries within this cluster.
+
 
 
 ### Dimension Reduction
@@ -859,12 +891,15 @@ X.test <- sparse.model.matrix(formula, data = X.test)
 lasso.base.model <- cv.glmnet(x = X.train, y = y.train, type.measure = "mse")
 lasso.base.model
 
-# Performance on the test dataset
-prediction <- predict(lasso.base.model, newx = X.test)
-postResample(pred = prediction, y.test)
-
 ```
 
+```{r}
+# Performance on the test dataset
+prediction <- predict(lasso.base.model, s = lasso.base.model$lambda.1se, newx = X.test)
+postResample(pred = prediction, y.test)
+```
+
+We see that the most regularized fit has been
 
 ### Lasso with polynomial features
 
@@ -895,15 +930,18 @@ X.test <- sparse.model.matrix(formula, data = X.test)
 lasso.poly.model <- cv.glmnet(x = X.train, y = y.train, type.measure = "mse")
 lasso.poly.model
 
-print("Minimal RMSE attained for lambda:")
-print(lasso.poly.model$lambda.min)
-
-print("Test dataset performance")
-prediction <- predict(lasso.poly.model, s = lasso.poly.model$lambda.min, newx = X.test)
-postResample(pred = prediction, y.test)
+print("Most regularized fit attained for lambda:")
+print(lasso.poly.model$lambda.1se)
 
 ```
+
+We can see that the most regularized fit has been attained with lambda equal to
+`r lasso.poly.model$lambda.1se`.
+
 ```{r}
-plot(lasso.poly.model)
+print("Test dataset performance")
+prediction <- predict(lasso.poly.model, s = lasso.poly.model$lambda.1se, newx = X.test)
+postResample(pred = prediction, y.test)
+
 ```
 
