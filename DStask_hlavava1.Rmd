@@ -155,13 +155,11 @@ continent_by_year_plot <- data %>% group_by(year, continent) %>%
 
 grid.arrange(continent_overall_plot, continent_by_year_plot, ncol = 2)
 ```
-It turns out that there certainly is a difference in suicide rates between the continents. The progress in Europe seems
-to be the most. It is worth noting that the data for Oceania and the Americas suggest that the suicide rates have been
-on rise in the most recent years, which means that these continents do not comply with the worldwide trend.
+It turns out that there certainly is a difference in suicide rates between the continents. It is worth noting that the data for Oceania and the Americas suggest that the suicide rates have been on rise in the most recent years, which means that these continents do not comply with the worldwide trend.
 
 The reason that the worldwide trend suggests that suicide rates are decreasing is the decrease of suicide rates within
 European countries. The suicide rates in Europe are large enough to dominate the suicide rates within the other continents.
-Therefore, they also dictate the worldwide trend. Europe also has the highest overall suicide rate during the inspected
+Because of that, they also dictate the worldwide trend. Europe also has the highest overall suicide rate during the inspected
 time period.
 
 I cannot recognize any trend within the Asian countries.
@@ -772,7 +770,13 @@ from the normal distribution.
 
 Due to this assumption being violated, we are forced to use a different method,
 the Kruskal-Wallis test, which can be used even if the normality assumption does not hold.
-This method will allow us to test a similar hypothesis.
+The Kruska-Wallis test is a non-parametric test, and as such it does not assume anything about
+the distribution of the data. It allows us to test a null hypothesis that is somewhat similar to that of ANOVA.
+
+Let $g_1, \dots, g_6$ be the data of different age groups from our data.
+The null hypothesis is that the data in groups $g_1, \dots, g_6$ comes from the same population.
+The alternative hypothesis is that at least one of the groups comes from a different population.
+
 
 ```{r}
 
@@ -789,6 +793,9 @@ kruskal.test(suicides_per_100k ~ age, data = age.hypothesis.data)
 
 ```
 
+The p-value of the test is less than our confidence level, and so we reject the null hypothesis in
+favour of the alternative hypothesis. The conclusion is that there is indeed a difference between
+the individual age groups.
 
 ### Higher suicide rates in countries with negative correlation
 
