@@ -578,7 +578,7 @@ clustering.data <- data %>%
   dplyr::select("correlation", "suicides_per_100k")
 ```
 
-Now, we can utilize the elbow method in order to select the number of clusters.
+We can utilize the elbow method in order to select the number of clusters.
 
 ```{r}
 set.seed(42)
@@ -634,6 +634,8 @@ The second cluster is also made out of countries with strong correlation, howeve
 it is positive instead of negative. The suicide rate is also higher than average for
 most of the countries within this cluster.
 
+The remaining two clusters are composed of countries whose suicide rates are mostly
+below the average.
 
 
 ### Dimension Reduction
@@ -655,7 +657,7 @@ data %>% group_by(country, year, gdp_for_year, gdp_per_capita) %>%
 ```
 
 
-### Conclusion
+### Exploratory Data Analysis Conclusion
 
 The exploratory data analysis helped us uncover many interesting insights. First of all, we have seen that
 the world experienced a sudden rise in suicide rates during 1989-1995, however these rates these have been on
@@ -848,7 +850,17 @@ However, I did not want to base this hypothesis on the data contained in this da
 
 ## 3. Suicide Rate Prediction Model
 
+Having done the analysis of the dataset, it might also be interesting to construct
+a predictive model that would predict the suicide rate for a certain group of population.
+
+For this purpose I will make use of the LASSO, a regression method, that performs
+an automatic feature selection. We will try to fit two different models and then
+evaluate the both using cross-validation and a test dataset.
+
 ### Encode categorical features
+
+First off, we will have to encode our ordinal and nominal variables, so that
+LASSO can make proper use of them.
 
 ```{r}
 
@@ -860,7 +872,7 @@ selected.columns <- c("suicide_rate", "population", "age", "sex", "gdp_per_capit
                       "gdp_for_year", "country", "continent", "year")
 
 # Hot one encoding the nominal variables
-dummies <- dummyVars( ~ sex + continent + country, data = ml.data, fullRank = TRUE)
+dummies <- dummyVars( ~ sex + continent + country, data = ml.data)
 ml.data.encoded.nominal <- predict(dummies, newdata = ml.data)
 
 # Tidy up the column names so that no space characters are present
@@ -877,7 +889,11 @@ ml.data.encoded <- as_tibble(cbind(ml.data[, c("population", "gdp_per_capita", "
 
 ### Simple Lasso
 
+The first model that we can try to fit using LASSO is a simple linear model.
+
 ```{r}
+
+set.seed(123)
 
 formula = as.formula(" ~ .")
 
@@ -902,15 +918,20 @@ lasso.base.model
 
 ```{r}
 # Performance on the test dataset
+print("Test dataset performance")
 prediction <- predict(lasso.base.model, s = lasso.base.model$lambda.1se, newx = X.test)
 postResample(pred = prediction, y.test)
 ```
 
-We see that the most regularized fit has been
+The most regularized fit has been achieved when lambda equals `r lasso.base.model$lambda.1se`.
+The performance
+
 
 ### Lasso with polynomial features
 
 ```{r}
+
+set.seed(123)
 
 # Create the model formula
 # This formula includes all of the features as well as their squares and all of the
@@ -923,6 +944,7 @@ formula <- as.formula(paste(" ~ .^2 + ",
 
 # Partition the dataset into the training and testing subsets
 train.idx <- createDataPartition(ml.data$suicide_rate, p = 0.7, list = FALSE)
+
 
 y.train <- ml.data[train.idx, ]$suicide_rate
 y.test <- ml.data[-train.idx, ]$suicide_rate
@@ -937,8 +959,8 @@ X.test <- sparse.model.matrix(formula, data = X.test)
 lasso.poly.model <- cv.glmnet(x = X.train, y = y.train, type.measure = "mse")
 lasso.poly.model
 
-print("Most regularized fit attained for lambda:")
-print(lasso.poly.model$lambda.1se)
+cat("\nMost regularized fit attained for lambda = ")
+cat(lasso.poly.model$lambda.1se)
 
 ```
 
@@ -949,6 +971,26 @@ We can see that the most regularized fit has been attained with lambda equal to
 print("Test dataset performance")
 prediction <- predict(lasso.poly.model, s = lasso.poly.model$lambda.1se, newx = X.test)
 postResample(pred = prediction, y.test)
-
 ```
 
+Based on the performance of this model on the test dataset, we can say that it is better at making
+predictions than our previous model.
+
+
+## 4. Conclusion
+
+After exploring this dataset we can say that we have found several suicide patterns.
+It came to our attention that men are significantly more likely to commit suicide than
+women, which we have also tested using a t-test. We also revealed that there is a difference
+in suicide rates between different age categories, and that mainly in Europe and Asia,
+the suicide risk gets larger with the age a person. Last but not least, suicide rates within
+many countries were strongly correlated with the GDP per capita of the country.
+
+We found that Europe has the highest suicide rate out of all of the continents, with Russia
+and Lithuania having the highest suicide rates. 
+
+While working with this dataset, I wondered what other patterns or connections we might be
+able to find, given that we would expand our dataset with new data. It would be interesting
+to check whether there is a relationship of a suicide rate within a country and the country's
+happiness index for example. I would also be interested in the connection between a country's
+suicide rate and the alcohol consumption level within its population.
