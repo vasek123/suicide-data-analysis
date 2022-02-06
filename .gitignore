@@ -1,7 +1,12 @@
-*.html
 *.pdf
 *.Rproj.user
 .Rproj.user
 .RData
 .Rhistory
+.DS_Store
+*.aux
+*.log
+*.tex
+*.zip
+DStask_hlavava1_files
 venv
